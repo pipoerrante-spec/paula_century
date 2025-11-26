@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Montserrat, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 
@@ -27,11 +28,32 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const GA_ID = process.env.NEXT_PUBLIC_GTAG_ID;
+
   return (
     <html lang="es">
       <body
         className={`${body.variable} ${display.variable} antialiased bg-[var(--background)] text-[var(--ink)]`}
       >
+        {GA_ID ? (
+          <>
+            <Script id="gtag-base" strategy="afterInteractive">
+              {`
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+              `}
+            </Script>
+            <Script
+              id="gtag-config"
+              strategy="afterInteractive"
+              src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+            />
+            <Script id="gtag-init" strategy="afterInteractive">
+              {`gtag('config', '${GA_ID}', { send_page_view: true });`}
+            </Script>
+          </>
+        ) : null}
         {children}
       </body>
     </html>
