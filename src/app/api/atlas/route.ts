@@ -22,6 +22,16 @@ const zoneAliases = [
     query: "Los Valles Av. Banzer Zona Norte Santa Cruz",
   },
   {
+    label: "Av. Alemana / 4to-6to anillo (Zona Norte)",
+    keywords: ["alemana", "av alemana", "avenida alemana"],
+    query: "Avenida Alemana Santa Cruz Bolivia 4to anillo",
+  },
+  {
+    label: "Av. Beni / 3er-5to anillo (Zona Norte)",
+    keywords: ["beni", "av beni", "avenida beni"],
+    query: "Avenida Beni Santa Cruz Bolivia",
+  },
+  {
     label: "Equipetrol / San Martín",
     keywords: ["equipetrol", "equiptrol", "san martin", "san martín", "zona norte"],
     query: "Equipetrol Norte Santa Cruz",
@@ -50,13 +60,14 @@ const zoneAliases = [
 
 const santaCruzGuide = `Mapa express de Santa Cruz para interpretar zonas y typos:
 - Zona Norte / Equipetrol / Av. Banzer (Los Valles, San Martín, 4to-8vo anillo).
+- Av. Alemana (4to-6to anillo) y Av. Beni (3er-5to anillo) son ejes de zona norte.
 - Urubó y Porongo (Colinas del Urubó): condominios privados, casas con club house y lotes amplios.
 - Zona Sur / Las Palmas / Doble vía La Guardia: zonas familiares, colegios y club de tenis.
 - Centro y anillos 1-2: oficinas y deptos cerca de servicios.
 - Parque Industrial / Carretera a Cotoca: uso comercial e industrial.
 "Valles" o "Banzer" => Zona Norte; "Palmas" o "Doble vía" => Zona Sur; "Urubó/Urubo" => lado Porongo.`;
 
-const systemPrompt = `Eres Atlas, asistente de Paula (Century 21 Bolivia). Especialista en propiedades de Bolivia. Responde breve, precisa y en tono humano. Interpreta zonas de Santa Cruz aunque vengan con errores (ej: "valles" = Av. Banzer, Zona Norte). Captura datos útiles (nombre, WhatsApp, email, zona, presupuesto, tipo de operación, timing) sin ser invasivo. Cuando tengas propiedades en contexto, menciona título, precio, zona y el link de Century 21; di que allí están las fotos/galería y que Paula coordina el tour. Siempre ofrece coordinar con Paula y continuar por WhatsApp o correo.`;
+const systemPrompt = `Eres Atlas, asistente de Paula (Century 21 Bolivia). Especialista en propiedades de Bolivia. Responde brevísimo, claro, con emojis y bullets; máximo 3-4 líneas. Interpreta zonas de Santa Cruz aunque vengan con errores (ej: "valles" = Av. Banzer, "aleman" = Av. Alemana, "beni" = Av. Beni). Pide solo lo esencial (WhatsApp, rango USD, zona, tipo casa/depto, tiempos). Cuando tengas propiedades en contexto, menciona título, precio, zona y link directo de Century 21; aclara que allí están fotos/galería y que Paula coordina tour. Termina con CTA corta (ej: "📲 Mándame tu WhatsApp y agendo con Paula").`;
 
 type IncomingMessage = { role?: string; content?: string };
 
@@ -236,14 +247,12 @@ export async function POST(req: Request) {
     const suggestionList = shortlist
       .map(
         (p) =>
-          `• ${p.title}\n   ${p.price || "Precio a consultar"} — ${p.location || "Bolivia"}\n   ${
-            p.url || "https://c21.com.bo"
-          }`,
+          `🏠 ${p.title}\n💰 ${p.price || "Consultar"} • ${p.location || "Bolivia"}\n🔗 ${p.url || "https://c21.com.bo"}`,
       )
       .join("\n\n");
 
     const combined = suggestionList
-      ? `${reply}\n\nOpciones en inventario Century 21:\n${suggestionList}\nPuedo enviarte la galería y coordinar tour con Paula.`
+      ? `${reply}\n\nOpciones rápidas:\n${suggestionList}\n📲 Envíame tu WhatsApp y agendo tour con Paula.`
       : reply;
 
     return NextResponse.json({ reply: combined, properties: shortlist });
