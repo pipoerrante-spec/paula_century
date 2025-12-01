@@ -17,6 +17,11 @@ export type PropertyDetail = {
   price: string;
   location: string;
   stats: string[];
+  map?: {
+    lat: number;
+    lon: number;
+    address?: string;
+  };
 };
 
 export type RemoteResult = {

@@ -11,22 +11,31 @@ export async function GET(request: Request) {
   const detailUrl = url.includes("?") ? `${url}&json=true` : `${url}?json=true`;
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
     const res = await fetch(detailUrl, {
       headers: {
         accept: "application/json",
         "user-agent": "Mozilla/5.0",
       },
       cache: "no-store",
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!res.ok) {
-      return NextResponse.json({ error: "No se pudo obtener la ficha" }, { status: res.status });
+      console.warn("Ficha C21 no disponible", res.status, detailUrl);
+      return NextResponse.json({ error: "No se pudo obtener la ficha remota", entity: null }, { status: 200 });
     }
 
     const data = await res.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error("No se pudo obtener la ficha remota", error);
-    return NextResponse.json({ error: "Error interno" }, { status: 500 });
+    if (error instanceof Error && error.name === "AbortError") {
+      console.warn("Timeout al obtener la ficha remota", detailUrl);
+    } else {
+      console.error("No se pudo obtener la ficha remota", error);
+    }
+    return NextResponse.json({ error: "No se pudo obtener la ficha remota", entity: null }, { status: 200 });
   }
 }

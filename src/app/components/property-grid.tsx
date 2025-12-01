@@ -80,6 +80,16 @@ export default function PropertyGrid({ properties }: { properties: Property[] })
         property.highlight,
       );
 
+      const lat = entity?.lat ?? entity?.latitud ?? null;
+      const lon = entity?.lon ?? entity?.longitud ?? null;
+      const latNum = typeof lat === "string" || typeof lat === "number" ? Number(lat) : NaN;
+      const lonNum = typeof lon === "string" || typeof lon === "number" ? Number(lon) : NaN;
+      const hasCoords = Number.isFinite(latNum) && Number.isFinite(lonNum);
+      const address = [entity?.calle, entity?.colonia, entity?.municipio, entity?.estado]
+        .filter(Boolean)
+        .join(", ")
+        .trim();
+
       const detailData: PropertyDetail = {
         title: entity.encabezado || property.title,
         description,
@@ -91,6 +101,13 @@ export default function PropertyGrid({ properties }: { properties: Property[] })
             .join(", ")
             .trim() || property.location,
         stats: stats.length ? stats : property.features,
+        map: hasCoords
+          ? {
+              lat: latNum,
+              lon: lonNum,
+              address: address || undefined,
+            }
+          : undefined,
       };
 
       setDetail(detailData);
@@ -125,6 +142,17 @@ export default function PropertyGrid({ properties }: { properties: Property[] })
   const currentDetail = detail || (openProperty ? baseDetail(openProperty) : null);
   const gallery = currentDetail?.images && currentDetail.images.length ? currentDetail.images : [];
   const showImage = gallery[activeIndex] || gallery[0];
+  const mapData = currentDetail?.map;
+  const mapEmbedUrl =
+    mapData &&
+    (() => {
+      const delta = 0.012;
+      const bbox = `${mapData.lon - delta},${mapData.lat - delta},${mapData.lon + delta},${mapData.lat + delta}`;
+      return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${mapData.lat}%2C${mapData.lon}`;
+    })();
+  const mapLink = mapData
+    ? `https://www.openstreetmap.org/?mlat=${mapData.lat}&mlon=${mapData.lon}#map=14/${mapData.lat}/${mapData.lon}`
+    : null;
 
   const goNext = () => {
     if (!gallery.length) return;
@@ -290,6 +318,39 @@ export default function PropertyGrid({ properties }: { properties: Property[] })
                 <p className="whitespace-pre-line text-sm leading-relaxed text-[var(--muted)]">
                   {currentDetail?.description || openProperty.highlight}
                 </p>
+                {mapEmbedUrl ? (
+                  <div className="space-y-3 rounded-2xl border border-[var(--line)] bg-white/90 p-3 shadow-[0_12px_40px_rgba(23,18,10,0.08)]">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">Ubicación verificada</p>
+                        <p className="text-sm font-semibold text-[var(--ink)]">
+                          {mapData?.address || currentDetail?.location || openProperty.location}
+                        </p>
+                      </div>
+                      {mapLink ? (
+                        <a
+                          href={mapLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-white px-3 py-1 text-[11px] font-semibold text-[var(--muted)] transition hover:-translate-y-0.5 hover:border-[var(--gold)] hover:text-[var(--ink)]"
+                        >
+                          Ver en mapa
+                          <span aria-hidden="true">↗</span>
+                        </a>
+                      ) : null}
+                    </div>
+                    <div className="relative overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+                      <iframe
+                        src={mapEmbedUrl}
+                        className="h-56 w-full"
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        aria-label="Mapa de ubicación"
+                      />
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/10 via-transparent to-transparent" />
+                    </div>
+                  </div>
+                ) : null}
                 {loading ? <p className="text-xs text-[var(--muted)]">Cargando detalles y galería...</p> : null}
                 {error ? (
                   <p className="rounded-xl border border-red-400/30 bg-red-50 px-3 py-2 text-xs text-red-700">
