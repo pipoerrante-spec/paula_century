@@ -1,32 +1,163 @@
 import { NextResponse } from "next/server";
-import { mapRemoteResultToProperty, type RemoteResult } from "../../../lib/properties";
+import { mapRemoteResultToProperty, type Property, type RemoteResult } from "../../../lib/properties";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-async function fetchSuggestions(limit = 4) {
+const allowedTypes = new Set([
+  "casa",
+  "casa-en-condominio",
+  "departamento",
+  "penthouse",
+  "terreno",
+  "oficinas",
+  "local-comercial",
+]);
+const allowedOperations = new Set(["venta", "renta"]);
+const allowedNumbers = new Set(["1", "2", "3", "4", "5"]);
+
+const zoneAliases = [
+  {
+    label: "Zona Norte / Av. Banzer (Los Valles)",
+    keywords: ["valles", "los valles", "banzer", "bánzer", "8vo anillo", "octavo anillo", "anillo norte"],
+    query: "Los Valles Av. Banzer Zona Norte Santa Cruz",
+  },
+  {
+    label: "Equipetrol / San Martín",
+    keywords: ["equipetrol", "equiptrol", "san martin", "san martín", "zona norte"],
+    query: "Equipetrol Norte Santa Cruz",
+  },
+  {
+    label: "Urubó / Porongo",
+    keywords: ["urubo", "urubó", "porongo", "colinas del urubo", "colinas del urubó"],
+    query: "Urubó Colinas del Urubó Porongo Santa Cruz",
+  },
+  {
+    label: "Las Palmas / Zona Sur",
+    keywords: ["las palmas", "palmas", "doble via", "doble vía", "la guardia", "zona sur", "radial 17", "radial 13"],
+    query: "Las Palmas Zona Sur Santa Cruz",
+  },
+  {
+    label: "Centro / Anillos 1-2",
+    keywords: ["centro", "casco viejo", "primer anillo", "segundo anillo", "monseñor", "manzana uno"],
+    query: "Centro Santa Cruz anillo",
+  },
+  {
+    label: "Parque Industrial / Cotoca",
+    keywords: ["parque industrial", "cotoca", "carretera a cotoca", "warnes", "montero"],
+    query: "Parque Industrial Carretera a Cotoca Santa Cruz",
+  },
+];
+
+const santaCruzGuide = `Mapa express de Santa Cruz para interpretar zonas y typos:
+- Zona Norte / Equipetrol / Av. Banzer (Los Valles, San Martín, 4to-8vo anillo).
+- Urubó y Porongo (Colinas del Urubó): condominios privados, casas con club house y lotes amplios.
+- Zona Sur / Las Palmas / Doble vía La Guardia: zonas familiares, colegios y club de tenis.
+- Centro y anillos 1-2: oficinas y deptos cerca de servicios.
+- Parque Industrial / Carretera a Cotoca: uso comercial e industrial.
+"Valles" o "Banzer" => Zona Norte; "Palmas" o "Doble vía" => Zona Sur; "Urubó/Urubo" => lado Porongo.`;
+
+const systemPrompt = `Eres Atlas, asistente de Paula (Century 21 Bolivia). Especialista en propiedades de Bolivia. Responde breve, precisa y en tono humano. Interpreta zonas de Santa Cruz aunque vengan con errores (ej: "valles" = Av. Banzer, Zona Norte). Captura datos útiles (nombre, WhatsApp, email, zona, presupuesto, tipo de operación, timing) sin ser invasivo. Cuando tengas propiedades en contexto, menciona título, precio, zona y el link de Century 21; di que allí están las fotos/galería y que Paula coordina el tour. Siempre ofrece coordinar con Paula y continuar por WhatsApp o correo.`;
+
+type IncomingMessage = { role?: string; content?: string };
+
+const normalizeText = (text: string) =>
+  (text || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+
+function detectZones(message: string) {
+  const normalized = normalizeText(message);
+  return zoneAliases.filter((zone) => zone.keywords.some((kw) => normalized.includes(kw)));
+}
+
+function extractFilters(message: string) {
+  const normalized = normalizeText(message);
+  const operation = normalized.match(/alquil|renta|anticret/) ? "renta" : normalized.match(/venta|vendo|compro|comprar/) ? "venta" : "";
+  const typeMatch = [
+    { value: "casa", tokens: ["casa", "chalet", "quinta", "hogar"] },
+    { value: "departamento", tokens: ["departamento", "depto", "dpto", "apto", "apart", "penthouse", "ph"] },
+    { value: "terreno", tokens: ["terreno", "lote", "lot", "solar"] },
+    { value: "oficinas", tokens: ["oficina", "oficinas"] },
+    { value: "local-comercial", tokens: ["local", "comercial", "tienda"] },
+  ].find((entry) => entry.tokens.some((token) => normalized.includes(token)));
+  const bedsMatch = normalized.match(/(\d+)\s*(hab|dorm|suite|cuarto)/);
+  const beds = bedsMatch && allowedNumbers.has(bedsMatch[1]) ? bedsMatch[1] : "";
+  const scope = /la paz|cochabamba|tarija|beni|pando|sucre|oruro|potosi|potosí/.test(normalized) ? "bo" : "sc";
+  return { operation, type: typeMatch?.value || "", beds, scope };
+}
+
+async function searchCentury({
+  keyword = "",
+  type = "",
+  operation = "",
+  beds = "",
+  baths = "",
+  scope = "sc",
+  limit = 6,
+}: {
+  keyword?: string;
+  type?: string;
+  operation?: string;
+  beds?: string;
+  baths?: string;
+  scope?: "sc" | "bo";
+  limit?: number;
+}): Promise<{ properties: Property[]; total: number }> {
+  const segments: string[] = [];
+  if (allowedOperations.has(operation)) {
+    segments.push(`operacion_${operation}`);
+  }
+  if (allowedTypes.has(type)) {
+    segments.push(`tipo_${type}`);
+  }
+  if (allowedNumbers.has(beds)) {
+    segments.push(`recamaras_${beds}`);
+  }
+  if (allowedNumbers.has(baths)) {
+    segments.push(`banos_${baths}`);
+  }
+  const keywordParam = keyword.trim();
+  const url = `https://c21.com.bo/v/resultados${segments.length ? `/${segments.join("/")}` : ""}?json=true${
+    keywordParam ? `&palabra=${encodeURIComponent(keywordParam)}` : ""
+  }`;
   try {
-    const res = await fetch("https://c21.com.bo/v/resultados?json=true", {
+    const res = await fetch(url, {
       headers: {
-        "user-agent": "Mozilla/5.0",
         accept: "application/json",
+        "accept-language": "es-BO,es;q=0.9",
+        "user-agent": "Mozilla/5.0",
+        referer: "https://c21.com.bo/v/resultados",
       },
-      next: { revalidate: 900 },
+      cache: "no-store",
+      next: { revalidate: 300 },
     });
-
-    if (!res.ok) return [];
+    if (!res.ok) {
+      return { properties: [], total: 0 };
+    }
     const data = await res.json();
-    const results: RemoteResult[] = Array.isArray(data?.results)
-      ? (data.results.slice(0, limit) as RemoteResult[])
-      : [];
-
-    return results.map(mapRemoteResultToProperty);
+    const results: RemoteResult[] = Array.isArray(data?.results) ? data.results : [];
+    const filtered =
+      scope === "bo"
+        ? results
+        : results.filter((item) => (item.estado || "").toLowerCase().includes("santa cruz"));
+    const properties = filtered.slice(0, limit).map(mapRemoteResultToProperty);
+    const totalRaw = data?.totalHits ?? properties.length;
+    const total =
+      typeof totalRaw === "number"
+        ? totalRaw
+        : Number(String(totalRaw || "").replace(/[^\d]/g, "")) || properties.length;
+    return { properties, total };
   } catch (error) {
-    console.error("Atlas no pudo obtener sugerencias", error);
-    return [];
+    console.error("Atlas search error", error);
+    return { properties: [], total: 0 };
   }
 }
 
-const systemPrompt = `Eres Atlas, asistente de Paula (Century 21 Bolivia). Especialista en propiedades de Bolivia: alquiler, compra y venta. Responde breve, precisa y con tono humano. Captura datos útiles (nombre, WhatsApp, email, zona, presupuesto, tipo de operación y timing) sin ser invasivo. Cuando tengas propiedades en contexto, preséntalas como si estuvieras en chat (sin enlaces), con título, precio, zona y breve nota; menciona que Paula puede coordinar tour o anticrético. Siempre ofrece coordinar con Paula y explica que seguirás por WhatsApp o correo.`;
+async function fetchSuggestions(limit = 4) {
+  const { properties } = await searchCentury({ limit, scope: "sc" });
+  return properties;
+}
 
 export async function POST(req: Request) {
   if (!OPENAI_API_KEY) {
@@ -35,32 +166,49 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const userMessages = Array.isArray(body?.messages) ? body.messages : [];
+    const userMessages: IncomingMessage[] = Array.isArray(body?.messages) ? body.messages : [];
 
-    const suggestions = await fetchSuggestions();
+    const lastUser = [...userMessages].reverse().find((m) => m?.role === "user")?.content || "";
+    const zoneHits = detectZones(lastUser);
+    const filters = extractFilters(lastUser);
+    const keywordBase = zoneHits.length ? zoneHits.map((z) => z.query).join(" ") : lastUser || "Santa Cruz Bolivia";
+    const keyword = keywordBase.slice(0, 140);
 
-    const lastUser = [...userMessages].reverse().find((m: any) => m?.role === "user")?.content?.toLowerCase?.() || "";
-    const keywords = ["equipetrol", "urubó", "santa cruz", "norte", "anticr", "alquiler", "venta"];
-    const filtered = suggestions.filter((p) => {
-      const loc = (p.location || "").toLowerCase();
-      const title = (p.title || "").toLowerCase();
-      return keywords.some((k) => lastUser.includes(k) && (loc.includes(k) || title.includes(k)));
+    const searchResult = await searchCentury({
+      keyword,
+      type: filters.type,
+      operation: filters.operation,
+      beds: filters.beds,
+      scope: filters.scope as "sc" | "bo",
+      limit: 6,
     });
 
-    const toUse = (filtered.length ? filtered : suggestions).slice(0, 3);
+    const suggestions = searchResult.properties.length ? searchResult.properties : await fetchSuggestions(6);
+    const shortlist = suggestions.slice(0, 4);
 
-    const suggestionText = toUse
-      .map((p, idx) => `${idx + 1}. ${p.title} • ${p.price || "Precio a consultar"} • ${p.location || "Bolivia"}`)
+    const propertyContext = shortlist
+      .map(
+        (p, idx) =>
+          `${idx + 1}. ${p.title} — ${p.price || "Consultar"} • ${p.location || "Santa Cruz"} • ${
+            p.url || "https://c21.com.bo"
+          }`,
+      )
       .join("\n");
+
+    const zoneHintText = zoneHits.length
+      ? `Zonas detectadas en la consulta: ${zoneHits.map((z) => z.label).join(", ")}.`
+      : "Si no indican ciudad, asume Santa Cruz (Zona Norte, Urubó/Porongo, Zona Sur, Centro).";
 
     const payload = {
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
-        suggestionText
+        { role: "system", content: santaCruzGuide },
+        zoneHintText ? { role: "system", content: zoneHintText } : null,
+        propertyContext
           ? {
               role: "system",
-              content: `Propiedades de Century 21 disponibles ahora (usa si son relevantes):\n${suggestionText}`,
+              content: `Propiedades de Century 21 relevantes (incluye el link en tu respuesta si aplican):\n${propertyContext}`,
             }
           : null,
         ...userMessages,
@@ -85,15 +233,20 @@ export async function POST(req: Request) {
     const data = await completion.json();
     const reply = data?.choices?.[0]?.message?.content || "";
 
-    const suggestionList = toUse
-      .map((p, idx) => `• ${p.title}\n   ${p.price || "Precio a consultar"} — ${p.location || "Bolivia"}`)
+    const suggestionList = shortlist
+      .map(
+        (p) =>
+          `• ${p.title}\n   ${p.price || "Precio a consultar"} — ${p.location || "Bolivia"}\n   ${
+            p.url || "https://c21.com.bo"
+          }`,
+      )
       .join("\n\n");
 
     const combined = suggestionList
-      ? `${reply}\n\nTe puedo mostrar ahora:\n${suggestionList}\nElige una o dime si afinamos zona/presupuesto y coordinamos con Paula.`
+      ? `${reply}\n\nOpciones en inventario Century 21:\n${suggestionList}\nPuedo enviarte la galería y coordinar tour con Paula.`
       : reply;
 
-    return NextResponse.json({ reply: combined });
+    return NextResponse.json({ reply: combined, properties: shortlist });
   } catch (error) {
     console.error("Atlas error", error);
     return NextResponse.json({ reply: "Hubo un problema. Intenta otra vez en un momento." }, { status: 500 });

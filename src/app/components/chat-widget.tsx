@@ -1,8 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import type { Property } from "../../lib/properties";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { role: "user" | "assistant"; content: string; properties?: Property[] };
 
 export default function ChatWidget() {
   const [open, setOpen] = useState(false);
@@ -38,8 +40,12 @@ export default function ChatWidget() {
         body: JSON.stringify({ messages: nextMessages }),
       });
       const data = await res.json();
-      setMessages((prev) => [...prev, { role: "assistant", content: data?.reply || "" }]);
-    } catch (error) {
+      const payloadProperties = Array.isArray(data?.properties) ? (data.properties as Property[]) : undefined;
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data?.reply || "", properties: payloadProperties },
+      ]);
+    } catch {
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: "No me pude conectar. Intenta de nuevo en unos segundos." },
@@ -86,15 +92,47 @@ export default function ChatWidget() {
           <div className="flex max-h-[78vh] flex-col">
             <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4 text-sm">
               {messages.map((m, idx) => (
-                <div
-                  key={idx}
-                  className={`rounded-2xl px-3 py-2 whitespace-pre-line leading-relaxed ${
-                    m.role === "assistant"
-                      ? "bg-white/12 text-white border border-white/10"
-                      : "bg-[#d9b05a] text-[#0f0d0a]"
-                  }`}
-                >
-                  {m.content}
+                <div key={idx} className="space-y-2">
+                  <div
+                    className={`rounded-2xl px-3 py-2 whitespace-pre-line leading-relaxed ${
+                      m.role === "assistant"
+                        ? "border border-white/10 bg-white/12 text-white"
+                        : "bg-[#d9b05a] text-[#0f0d0a]"
+                    }`}
+                  >
+                    {m.content}
+                  </div>
+                  {m.role === "assistant" && m.properties?.length ? (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {m.properties.map((p) => (
+                        <a
+                          key={(p.url || p.title || "propiedad") + idx}
+                          href={p.url || "https://c21.com.bo"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex gap-3 rounded-2xl border border-white/10 bg-white/5 p-2 text-white transition hover:border-[#d9b05a]/70 hover:bg-white/10"
+                        >
+                          <div className="relative h-20 w-24 overflow-hidden rounded-xl bg-white/10">
+                            <Image
+                              src={p.image}
+                              alt={p.title}
+                              fill
+                              sizes="120px"
+                              className="object-cover"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                          </div>
+                          <div className="flex flex-1 flex-col justify-between">
+                            <div className="space-y-0.5">
+                              <p className="text-sm font-semibold text-white">{p.title}</p>
+                              <p className="text-xs text-white/70">{p.location}</p>
+                            </div>
+                            <p className="text-xs font-semibold text-[#d9b05a]">{p.price || "Consultar"}</p>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ))}
               {loading ? (

@@ -5,12 +5,16 @@ import type { Property } from "../../lib/properties";
 import PropertyGrid from "./property-grid";
 
 export default function PropertySearch({ initial }: { initial: Property[] }) {
+  const PAGE_SIZE = 12;
   const [query, setQuery] = useState("");
   const [properties, setProperties] = useState<Property[]>(initial);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastSearch, setLastSearch] = useState<string>("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalResults, setTotalResults] = useState<number | null>(null);
   const [selectedType, setSelectedType] = useState("");
   const [selectedZone, setSelectedZone] = useState("");
   const [selectedOperation, setSelectedOperation] = useState("");
@@ -64,6 +68,18 @@ export default function PropertySearch({ initial }: { initial: Property[] }) {
     Terreno: "terreno",
   };
 
+  type SearchParams = {
+    text?: string;
+    type?: string;
+    zone?: string;
+    operation?: string;
+    beds?: string;
+    baths?: string;
+    scope?: "sc" | "bo";
+    page?: number;
+    append?: boolean;
+  };
+
   const runSearch = async ({
     text = query,
     type = selectedType,
@@ -72,7 +88,9 @@ export default function PropertySearch({ initial }: { initial: Property[] }) {
     beds = selectedBeds,
     baths = selectedBaths,
     scope = selectedScope,
-  } = {}) => {
+    page: requestedPage,
+    append = false,
+  }: SearchParams = {}) => {
     const keyword = [zone, text].filter(Boolean).join(" ").trim();
     const hasFilters =
       keyword || type || operation || beds || baths || scope !== "sc" || selectedZone || selectedType;
@@ -81,12 +99,17 @@ export default function PropertySearch({ initial }: { initial: Property[] }) {
       setStatus("Explora las propiedades curadas para ti.");
       setError(null);
       setLastSearch("");
+      setPage(1);
+      setHasMore(false);
+      setTotalResults(initial.length);
       return;
     }
 
+    const nextPage = append ? requestedPage || page + 1 : requestedPage || 1;
+
     setLoading(true);
     setError(null);
-    setStatus("Buscando en el inventario completo de Paula...");
+    setStatus(append ? "Cargando página siguiente..." : "Buscando en el inventario completo de Paula...");
 
     try {
       const params = new URLSearchParams();
@@ -96,6 +119,8 @@ export default function PropertySearch({ initial }: { initial: Property[] }) {
       if (beds) params.set("beds", beds);
       if (baths) params.set("baths", baths);
       if (scope) params.set("scope", scope);
+      params.set("page", String(nextPage));
+      params.set("limit", String(PAGE_SIZE));
 
       const res = await fetch(`/api/search?${params.toString()}`);
       const data = await res.json().catch(() => null);
@@ -104,11 +129,23 @@ export default function PropertySearch({ initial }: { initial: Property[] }) {
         setStatus("Revisa tu conexión o intenta otro término.");
         setProperties(initial);
         setLastSearch("");
+        setHasMore(false);
+        setPage(1);
+        setTotalResults(initial.length);
         return;
       }
 
       const results = Array.isArray(data?.properties) ? (data.properties as Property[]) : [];
-      setProperties(results);
+      const total =
+        typeof data?.total === "number"
+          ? data.total
+          : Number(data?.total) || (append ? properties.length + results.length : results.length);
+      const nextList = append ? [...properties, ...results] : results;
+
+      setProperties(nextList);
+      setPage(nextPage);
+      setHasMore(Boolean(data?.hasMore));
+      setTotalResults(total);
       setLastSearch(keyword || "");
       const readableFilters = [
         operation === "venta" ? "Venta" : operation === "renta" ? "Alquiler" : null,
@@ -118,9 +155,10 @@ export default function PropertySearch({ initial }: { initial: Property[] }) {
         zone || null,
         scope === "bo" ? "Bolivia" : "Santa Cruz",
       ].filter(Boolean);
+      const filtersText = readableFilters.length ? ` (${readableFilters.join(" • ")})` : "";
       setStatus(
-        results.length
-          ? `Mostrando ${results.length} resultados (${readableFilters.join(" • ")})`
+        nextList.length
+          ? `Mostrando ${nextList.length}${total ? ` de ${total}` : ""} resultados${filtersText}`
           : `Sin coincidencias. Ajusta zona, tipo, operación o dormitorios.`,
       );
     } catch (err) {
@@ -129,6 +167,9 @@ export default function PropertySearch({ initial }: { initial: Property[] }) {
       setStatus("Mostrando los listados iniciales.");
       setProperties(initial);
       setLastSearch("");
+      setHasMore(false);
+      setPage(1);
+      setTotalResults(initial.length);
     } finally {
       setLoading(false);
     }
@@ -319,6 +360,9 @@ export default function PropertySearch({ initial }: { initial: Property[] }) {
                 setSelectedBaths("");
                 setSelectedScope("sc");
                 setQuery("");
+                setPage(1);
+                setHasMore(false);
+                setTotalResults(initial.length);
                 runSearch({
                   text: "",
                   type: "",
@@ -407,6 +451,25 @@ export default function PropertySearch({ initial }: { initial: Property[] }) {
       ) : null}
 
       <PropertyGrid properties={properties} />
+
+      <div className="flex flex-col items-center justify-center gap-2 pt-6">
+        {hasMore ? (
+          <button
+            type="button"
+            onClick={() => runSearch({ append: true, page: page + 1 })}
+            className="rounded-full border border-[var(--line)] bg-white px-5 py-3 text-xs font-semibold text-[var(--ink)] shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--gold)] hover:text-[var(--ink)] disabled:opacity-60"
+            disabled={loading}
+          >
+            {loading ? "Cargando..." : "Siguiente página"}
+          </button>
+        ) : null}
+        {properties.length ? (
+          <p className="text-xs text-[var(--muted)]">
+            Página {page} • Mostrando {properties.length}
+            {totalResults ? ` de ${totalResults}` : ""} listados
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
