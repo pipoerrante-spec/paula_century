@@ -45,6 +45,12 @@ export type RemoteResult = {
   estado?: string;
   exclusiva?: boolean;
   etiquetas?: { label?: string | null }[] | null;
+  lat?: number | string | null;
+  lon?: number | string | null;
+  latitud?: number | string | null;
+  longitud?: number | string | null;
+  calle?: string | null;
+  colonia?: string | null;
   tipoPropiedadEnTipoOperacion?: string;
   tipoOperacionTxt?: string;
   tipoPropiedad?: string;
