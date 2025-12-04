@@ -146,10 +146,10 @@ const testimonials: Testimonial[] = [
 ];
 
 const stats = [
-  { value: "230+", label: "familias asesoradas", detail: "en 8 años de trayectoria." },
-  { value: "92%", label: "propiedades vendidas", detail: "antes de 60 días en exclusiva." },
-  { value: "US$45M", label: "volumen colocado", detail: "residencial y land banking." },
-  { value: "Top Producer", label: "Century 21", detail: "reconocida 2024." },
+  { value: "24h", label: "Rapidez real", detail: "Tasación, pricing y plan de marketing en un día hábil." },
+  { value: "Visitas filtradas", label: "Eficiencia", detail: "Solo compradores listos; agenda corta y enfocada." },
+  { value: "Negociación senior", label: "Profesionalismo", detail: "Contratos, timings y cierres explicados sin rodeos." },
+  { value: "Acompañamiento 1:1", label: "Asesoría premium", detail: "Trato directo con Paula de inicio a firma." },
 ];
 
 async function fetchRemoteProperties(limit = 6): Promise<Property[]> {
